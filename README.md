@@ -104,6 +104,9 @@ SEARXNG_URL=http://localhost:8080 uv run search-extract-api --port 8000
 
 ## Using the API
 
+The complete endpoint-by-endpoint guide, with examples and recipes, is in
+[docs/user-guide.md](docs/user-guide.md). The essentials:
+
 Authentication (when `API_KEYS` is set): `X-API-Key: <key>` or `Authorization: Bearer <key>`.
 Rate limits apply per key (`RATE_LIMIT_PER_MINUTE`, headers `X-RateLimit-*`).
 
