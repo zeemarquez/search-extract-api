@@ -252,9 +252,10 @@ class IdealistaApiAdapter(SourceAdapter):
             "maxItems": min(50, query.limit),
             "numPage": query.page,
             "locale": query.lang or "es",
-            "order": "publicationDate" if query.sort == "date" else "weigh",
-            "sort": "desc",
         }
+        if query.sort == "date":
+            form["order"] = "publicationDate"
+            form["sort"] = "desc"
         if query.location_id:
             form["locationId"] = query.location_id
         elif query.latitude is not None and query.longitude is not None:

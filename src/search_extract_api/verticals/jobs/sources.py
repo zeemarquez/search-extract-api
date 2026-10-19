@@ -74,7 +74,7 @@ def _text(element: Any, xpath: str) -> str | None:
     return collapse_ws(value) or None
 
 
-def parse_linkedin_cards(html_text: str, work_mode: WorkMode | None = None) -> list[JobResult]:
+def parse_linkedin_cards(html_text: str) -> list[JobResult]:
     """Parses job cards from LinkedIn's jobs search HTML."""
     if not html_text or not html_text.strip():
         return []
@@ -109,7 +109,7 @@ def parse_linkedin_cards(html_text: str, work_mode: WorkMode | None = None) -> l
                 job_title=title,
                 company=company,
                 location=location,
-                work_mode=work_mode or guess_work_mode(location, title),
+                work_mode=guess_work_mode(location, title),
                 salary=salary,
                 published_at=parse_datetime(posted),
                 image=image if is_http_url(image) else None,
@@ -163,6 +163,8 @@ class LinkedInJobsAdapter(SourceAdapter):
             params["location"] = query.location  # type: ignore[attr-defined]
         work_mode = getattr(query, "work_mode", None)
         if work_mode:
+            # Honored by the logged-in site; the guest endpoint may ignore it, so results
+            # keep the mode read from each card (None when the card does not say).
             params["f_WT"] = LINKEDIN_WORK_MODE[work_mode]
         since, _ = resolve_window(query.time_range, query.since, query.until)
         if since is not None:
@@ -184,7 +186,7 @@ class LinkedInJobsAdapter(SourceAdapter):
                 if results and exc.code == ErrorCode.UPSTREAM_HTTP_ERROR:
                     break
                 raise
-            batch = parse_linkedin_cards(fetched.html, work_mode)
+            batch = parse_linkedin_cards(fetched.html)
             results.extend(batch)
             if len(batch) < LINKEDIN_PAGE_SIZE:
                 break
@@ -200,6 +202,10 @@ def _terms(text: str | None) -> list[str]:
     return [strip_accents(t).casefold() for t in (text or "").split() if t.strip()]
 
 
+REMOTIVE_URL = "https://remotive.com/api/remote-jobs"
+REMOTIVE_CACHE_TTL = 6 * 3600
+
+
 class RemotiveAdapter(SourceAdapter):
     name = "remotive"
     title = "Remotive"
@@ -207,24 +213,53 @@ class RemotiveAdapter(SourceAdapter):
     result_model = JobResult
 
     def notes(self, settings: Settings) -> list[str]:
-        return ["Public API: keep request volume low and link back to Remotive job pages."]
+        return [
+            "Terms: results must link to the Remotive job page and name Remotive as the "
+            "source; jobs are published with a 24 h delay.",
+            "Remotive allows very few requests (more than 2 per minute are blocked), so the "
+            "job list is fetched at most every 6 hours and filtered locally.",
+        ]
+
+    async def _jobs(self, ctx: SourceContext) -> list[dict[str, Any]]:
+        cached = await ctx.cache.get_json("remotive:jobs")
+        if cached is not None:
+            return cached
+        await ctx.http.politeness.wait_key("remotive", 30.0)
+        data = await ctx.http.get_json(REMOTIVE_URL, source="Remotive")
+        jobs = []
+        for job in (data or {}).get("jobs") or []:
+            if isinstance(job, dict) and is_http_url(job.get("url")):
+                job = dict(job)
+                job["description"] = truncate(strip_html(job.get("description")), 2000) or ""
+                jobs.append(job)
+        await ctx.cache.set_json("remotive:jobs", jobs, REMOTIVE_CACHE_TTL)
+        return jobs
 
     async def search(self, query: BaseQuery, ctx: SourceContext) -> list[Result]:
         work_mode = getattr(query, "work_mode", None)
         if work_mode and work_mode != "remote":
             return []
-        params: dict[str, Any] = {"limit": min(200, max(query.limit * 3, 50))}
-        keywords = " ".join(filter(None, [query.q, getattr(query, "company", None)]))
-        if keywords:
-            params["search"] = keywords
-        data = await ctx.http.get_json(
-            "https://remotive.com/api/remote-jobs", params=params, source="Remotive"
-        )
+        terms = _terms(query.q)
+        company_terms = _terms(getattr(query, "company", None))
         location_terms = _terms(getattr(query, "location", None))
+        since, until = resolve_window(query.time_range, query.since, query.until)
         results: list[Result] = []
-        for job in (data or {}).get("jobs") or []:
-            url = job.get("url")
-            if not is_http_url(url):
+        for job in await self._jobs(ctx):
+            title = strip_html(job.get("title")) or None
+            company = job.get("company_name")
+            tags = [str(t) for t in job.get("tags") or []]
+            haystack = " ".join(
+                [
+                    title or "",
+                    company or "",
+                    job.get("category") or "",
+                    " ".join(tags),
+                    job.get("description") or "",
+                ]
+            )
+            if terms and not _matches_terms(haystack, terms):
+                continue
+            if company_terms and not _matches_terms(company or "", company_terms):
                 continue
             region = job.get("candidate_required_location") or ""
             if location_terms and not (
@@ -232,16 +267,14 @@ class RemotiveAdapter(SourceAdapter):
                 or re.search(r"worldwide|anywhere|global", region, re.I)
             ):
                 continue
-            company = job.get("company_name")
-            if getattr(query, "company", None) and not _matches_terms(
-                company or "",
-                _terms(query.company),  # type: ignore[attr-defined]
+            published = parse_datetime(job.get("publication_date"))
+            if published is not None and (
+                (since and published < since) or (until and published > until)
             ):
                 continue
-            title = strip_html(job.get("title")) or None
             results.append(
                 JobResult(
-                    url=url,
+                    url=job["url"],
                     title=title,
                     job_title=title,
                     company=company,
@@ -249,12 +282,16 @@ class RemotiveAdapter(SourceAdapter):
                     work_mode="remote",
                     employment_type=job.get("job_type") or None,
                     salary=job.get("salary") or None,
-                    published_at=parse_datetime(job.get("publication_date")),
-                    snippet=truncate(strip_html(job.get("description")), 400) or None,
+                    published_at=published,
+                    snippet=truncate(job.get("description"), 400) or None,
                     image=job.get("company_logo") if is_http_url(job.get("company_logo")) else None,
                     source="remotive.com",
                     providers=[self.name],
-                    extra={"category": job.get("category"), "tags": job.get("tags") or []},
+                    extra={
+                        "category": job.get("category"),
+                        "tags": tags,
+                        "attribution": "Remotive",
+                    },
                 )
             )
         return results

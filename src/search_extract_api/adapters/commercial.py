@@ -40,6 +40,7 @@ class TavilyAdapter(SourceAdapter):
             "max_results": min(20, query.limit),
             "include_images": False,
             "include_answer": False,
+            "include_published_date": True,
         }
         since, _ = resolve_window(query.time_range, query.since, query.until)
         if query.time_range:
@@ -53,6 +54,9 @@ class TavilyAdapter(SourceAdapter):
         domains = getattr(query, "domains", None)
         if domains:
             body["include_domains"] = domains
+        excluded = getattr(query, "exclude_domains", None)
+        if excluded:
+            body["exclude_domains"] = excluded
         data = await ctx.http.get_json(
             "https://api.tavily.com/search",
             method="POST",
@@ -73,7 +77,9 @@ class TavilyAdapter(SourceAdapter):
                     published_at=parse_datetime(item.get("published_date")),
                     source=site_of(url),
                     providers=[self.name],
-                    extra={"provider_score": item.get("score")},
+                    extra={"provider_score": item["score"]}
+                    if item.get("score") is not None
+                    else {},
                 )
             )
         return results
@@ -103,7 +109,7 @@ class ExaAdapter(SourceAdapter):
             "query": query.q,
             "numResults": min(25, query.limit),
             "type": "auto",
-            "contents": {"highlights": {"numSentences": 2, "highlightsPerUrl": 1}},
+            "contents": {"highlights": {"maxCharacters": 400}},
         }
         if self.category:
             body["category"] = self.category
@@ -115,6 +121,9 @@ class ExaAdapter(SourceAdapter):
         domains = getattr(query, "domains", None)
         if domains:
             body["includeDomains"] = domains
+        excluded = getattr(query, "exclude_domains", None)
+        if excluded:
+            body["excludeDomains"] = excluded
         data = await ctx.http.get_json(
             "https://api.exa.ai/search",
             method="POST",

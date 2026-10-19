@@ -217,7 +217,9 @@ async def test_linkedin_with_session(make_client, net) -> None:
         assert body["failed_sources"] == []
         linkedin = [r for r in body["results"] if "linkedin" in r["providers"]]
         assert {r["job_title"] for r in linkedin} == {"Desarrollador Python", "Backend Engineer"}
-        assert all(r["work_mode"] == "hybrid" for r in linkedin)  # filter forwarded to LinkedIn
+        # The filter is forwarded, but modes come from each card, never from the query.
+        modes = {r["job_title"]: r["work_mode"] for r in linkedin}
+        assert modes == {"Desarrollador Python": "hybrid", "Backend Engineer": None}
         sent = search.calls.last.request
         assert sent.url.params["keywords"] == "python"
         assert sent.url.params["location"] == "Madrid"
@@ -310,3 +312,23 @@ async def test_expired_session_only_fails_the_sources_that_need_it(make_client, 
     assert linkedin["error"]["code"] == "SESSION_EXPIRED"
     assert linkedin["details"]["session_id"] == sid
     assert body["count"] > 0  # Remotive / Arbeitnow still answer
+
+
+async def test_remotive_is_fetched_once_and_filtered_locally(client, net) -> None:
+    route = net.get("https://remotive.com/api/remote-jobs").mock(
+        return_value=httpx.Response(200, json=REMOTIVE)
+    )
+    net.get("https://www.arbeitnow.com/api/job-board-api").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    python = (
+        await client.get("/jobs/search", params={"q": "django", "sources": "remotive"})
+    ).json()
+    go = (
+        await client.get("/jobs/search", params={"q": "go developer", "sources": "remotive"})
+    ).json()
+    assert [r["job_title"] for r in python["results"]] == ["Python Engineer"]  # matched on tags
+    assert [r["job_title"] for r in go["results"]] == ["Go Developer"]
+    assert route.call_count == 1  # one upstream request serves every query
+    assert "search" not in route.calls.last.request.url.params
+    assert python["results"][0]["extra"]["attribution"] == "Remotive"
