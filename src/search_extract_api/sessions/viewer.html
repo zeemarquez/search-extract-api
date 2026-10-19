@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Remote login</title>
+<style>
+  :root { --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --accent: #2563eb; --danger: #b42318; --border: #d9dde5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111418; --panel: #1a1f26; --text: #e7eaf0; --muted: #9aa3b2; --accent: #6ea0ff; --danger: #ff8a7a; --border: #2c333d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  header .url { flex: 1 1 260px; min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: ui-monospace, monospace; font-size: 12px; }
+  button { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .note { max-width: 1280px; width: 100%; color: var(--muted); }
+  .screen { position: relative; width: 100%; max-width: 1280px; aspect-ratio: 1280 / 800; background: #000; border-radius: 6px; overflow: hidden; outline: none; border: 1px solid var(--border); }
+  .screen:focus { border-color: var(--accent); }
+  .screen img { width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+  .screen img:not([src]) { visibility: hidden; }
+  #msg { max-width: 1280px; width: 100%; min-height: 1.4em; }
+  #msg.error { color: var(--danger); }
+  #msg.ok { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <strong>Remote login</strong>
+  <span class="url" id="url">connecting…</span>
+  <button id="back" title="Back">Back</button>
+  <button id="reload" title="Reload">Reload</button>
+  <button id="done" class="primary">I'm logged in — save session</button>
+  <button id="cancel" class="danger">Cancel</button>
+</header>
+<main>
+  <p class="note">This is a live view of a browser running on the server. Click the screen, then type normally (paste works too). Your password is sent only to the site; just the resulting session cookies are stored, encrypted.</p>
+  <div class="screen" id="screen" tabindex="0"><img id="frame" alt="Remote browser screen"></div>
+  <div id="msg" role="status"></div>
+</main>
+<script>
+(() => {
+  const params = new URLSearchParams(location.hash.slice(1));
+  const token = params.get("token");
+  history.replaceState(null, "", location.pathname);  // drop the secret from the address bar
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const wsUrl = `${proto}://${location.host}${location.pathname.replace(/\/view$/, "/ws")}`;
+  const img = document.getElementById("frame");
+  const screen = document.getElementById("screen");
+  const msg = document.getElementById("msg");
+  const urlEl = document.getElementById("url");
+  const W = 1280, H = 800;
+  let ws, lastUrl = null, finished = false;
+
+  const say = (text, cls = "") => { msg.textContent = text; msg.className = cls; };
+  const send = (obj) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); };
+  const point = (ev) => {
+    const r = img.getBoundingClientRect();
+    return { x: (ev.clientX - r.left) * W / r.width, y: (ev.clientY - r.top) * H / r.height };
+  };
+
+  if (!token) { say("Missing login token in the link.", "error"); return; }
+
+  ws = new WebSocket(wsUrl);
+  ws.binaryType = "blob";
+  ws.onopen = () => send({ type: "auth", token });
+  ws.onmessage = (ev) => {
+    if (typeof ev.data !== "string") {
+      const url = URL.createObjectURL(ev.data);
+      img.onload = () => { if (lastUrl) URL.revokeObjectURL(lastUrl); lastUrl = url; };
+      img.src = url;
+      return;
+    }
+    const data = JSON.parse(ev.data);
+    if (data.type === "status") { urlEl.textContent = data.url || ""; if (!msg.textContent) say("Connected. Log in on the screen above."); }
+    else if (data.type === "completed") { finished = true; say(`Session saved (${data.session.id}). You can close this window.`, "ok"); disable(); }
+    else if (data.type === "error") { say(data.message, "error"); }
+    else if (data.type === "closed") { finished = true; say(`Login ${data.status}.`, data.status === "completed" ? "ok" : "error"); disable(); }
+  };
+  ws.onclose = () => { if (!finished) say("Disconnected. Reload the page to reconnect.", "error"); };
+
+  function disable() { for (const id of ["back", "reload", "done", "cancel"]) document.getElementById(id).disabled = true; }
+
+  screen.addEventListener("click", (ev) => { screen.focus(); send({ type: "click", ...point(ev) }); });
+  screen.addEventListener("dblclick", (ev) => send({ type: "dblclick", ...point(ev) }));
+  screen.addEventListener("wheel", (ev) => { ev.preventDefault(); send({ type: "wheel", dx: ev.deltaX, dy: ev.deltaY }); }, { passive: false });
+  screen.addEventListener("keydown", (ev) => {
+    const mods = [];
+    if (ev.ctrlKey) mods.push("Control");
+    if (ev.altKey) mods.push("Alt");
+    if (ev.metaKey) mods.push("Meta");
+    if (ev.key.length === 1 && !mods.length) { send({ type: "type", text: ev.key }); ev.preventDefault(); return; }
+    if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === "v") return;  // let the paste event handle it
+    if (ev.shiftKey) mods.push("Shift");
+    send({ type: "key", key: ev.key === " " ? "Space" : ev.key, modifiers: mods });
+    ev.preventDefault();
+  });
+  screen.addEventListener("paste", (ev) => {
+    const text = (ev.clipboardData || window.clipboardData).getData("text");
+    if (text) send({ type: "type", text });
+    ev.preventDefault();
+  });
+  document.getElementById("back").onclick = () => send({ type: "back" });
+  document.getElementById("reload").onclick = () => send({ type: "reload" });
+  document.getElementById("done").onclick = () => { say("Saving session…"); send({ type: "done" }); };
+  document.getElementById("cancel").onclick = () => send({ type: "cancel" });
+})();
+</script>
+</body>
+</html>

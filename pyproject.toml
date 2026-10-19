@@ -1,0 +1,85 @@
+[project]
+name = "search-extract-api"
+version = "0.1.0"
+description = "Self-hosted, open-source web search & extraction API: web search, feeds, clean extraction with content fingerprints, authenticated sessions, AI summarize/dedup/classify/verify and pluggable verticals (news, jobs, housing)."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+authors = [{ name = "Zee" }]
+keywords = ["search", "scraping", "extraction", "rss", "fastapi", "searxng", "crawl4ai", "llm"]
+classifiers = [
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "redis>=5.0",
+    "feedparser>=6.0.11",
+    "trafilatura>=2.0",
+    "lxml>=5.2",
+    "markdownify>=0.13",
+    "cryptography>=43",
+    "py3langid>=0.3",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Headless browser used for interactive logins and session-based page rendering.
+browser = ["playwright>=1.48"]
+
+[project.scripts]
+search-extract-api = "search_extract_api.__main__:main"
+
+# Third-party packages can add verticals and sources without touching the core:
+#
+# [project.entry-points."search_extract_api.verticals"]
+# events = "my_package.events:EventsVertical"
+#
+# [project.entry-points."search_extract_api.sources"]
+# my_news_source = "my_package.sources:build_my_news_source"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.7",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/search_extract_api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "a1: phase A1 - core search, feeds, extraction and fingerprint",
+    "a2: phase A2 - news vertical, AI endpoints and fallback providers",
+    "a3: phase A3 - authenticated sessions and structured extraction",
+    "a4: phase A4 - jobs and housing verticals",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:feedparser.*",
+    "ignore:.*starlette.testclient.*",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["E501", "B008", "RUF012", "RUF001", "RUF002", "RUF003", "ASYNC109"]

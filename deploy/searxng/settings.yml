@@ -1,0 +1,35 @@
+# SearXNG configuration used by search-extract-api.
+# SearXNG is only reachable inside the Compose network; the API is its only client.
+# Reference: https://docs.searxng.org/admin/settings/index.html
+use_default_settings: true
+
+general:
+  instance_name: "search-extract-api"
+  enable_metrics: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "all"
+  # JSON output is what the API consumes (the default is html only -> HTTP 403).
+  formats:
+    - html
+    - json
+
+server:
+  # Overridden by the SEARXNG_SECRET environment variable set in docker-compose.yml.
+  secret_key: "search-extract-api-placeholder-secret"
+  # The bot limiter is for public instances; here the API is the only caller.
+  limiter: false
+  public_instance: false
+  image_proxy: false
+
+valkey:
+  # Only needed by the limiter / public instances.
+  url: false
+
+outgoing:
+  request_timeout: 5.0
+  max_request_timeout: 12.0
+  pool_connections: 100
+  pool_maxsize: 20

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local configuration and data (sessions are secrets, even encrypted)
+.env
+data/
+*.db
+*.db-journal
+session.key
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

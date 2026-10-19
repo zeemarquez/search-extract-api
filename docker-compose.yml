@@ -1,0 +1,114 @@
+# search-extract-api — full stack with one command:
+#
+#   docker compose up -d
+#
+# Services: the API, SearXNG (JSON output enabled), Valkey (cache), Crawl4AI (headless
+# browser rendering) and the encrypted session store (the `sessions` volume).
+# Optional local LLM: COMPOSE_PROFILES=ollama plus LLM_BASE_URL=http://ollama:11434/v1.
+# Every setting can be overridden from a `.env` file (see .env.example).
+
+name: search-extract-api
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  api:
+    build: .
+    image: search-extract-api:0.1.0
+    restart: unless-stopped
+    ports:
+      # Localhost only by default. Set API_BIND=0.0.0.0 (and API_KEYS!) to expose it.
+      - "${API_BIND:-127.0.0.1}:${API_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
+      REDIS_URL: ${REDIS_URL:-redis://valkey:6379/0}
+      CRAWL4AI_URL: ${CRAWL4AI_URL:-http://crawl4ai:11235}
+      CRAWL4AI_TOKEN: ${CRAWL4AI_API_TOKEN:-change-me-crawl4ai-internal-token}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      SESSIONS_DB_PATH: /data/sessions.db
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - sessions:/data
+    shm_size: 512mb
+    depends_on:
+      valkey:
+        condition: service_healthy
+      searxng:
+        condition: service_started
+      crawl4ai:
+        condition: service_started
+    logging: *logging
+
+  searxng:
+    image: docker.io/searxng/searxng:2026.10.17-1c10abe2d
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-searxng-secret}
+      SEARXNG_BASE_URL: http://searxng:8080/
+    volumes:
+      - ./deploy/searxng:/etc/searxng:rw
+      - searxng-cache:/var/cache/searxng
+    logging: *logging
+
+  valkey:
+    image: docker.io/valkey/valkey:9.1.2-alpine
+    restart: unless-stopped
+    # Pure cache: no persistence. Sessions live in the encrypted SQLite store instead.
+    command: ["valkey-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "${VALKEY_MAXMEMORY:-256mb}", "--maxmemory-policy", "allkeys-lru"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging: *logging
+
+  crawl4ai:
+    image: docker.io/unclecode/crawl4ai:0.9.5
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      # Crawl4AI >= 0.9 only listens on the network when a token is set.
+      CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-change-me-crawl4ai-internal-token}
+      CRAWL4AI_MAX_TIMEOUT_MS: "120000"
+    deploy:
+      resources:
+        limits:
+          memory: ${CRAWL4AI_MEMORY:-4g}
+    logging: *logging
+
+  # --- Optional local LLM (COMPOSE_PROFILES=ollama) -----------------------------------
+  ollama:
+    image: docker.io/ollama/ollama:0.40.6
+    profiles: ["ollama"]
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    logging: *logging
+
+  ollama-pull:
+    image: docker.io/ollama/ollama:0.40.6
+    profiles: ["ollama"]
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "sleep 3 && ollama pull ${LLM_CHAT_MODEL:-qwen2.5:7b-instruct} && ollama pull ${EMBEDDINGS_MODEL:-bge-m3}"
+    restart: "no"
+    logging: *logging
+
+volumes:
+  sessions:
+  searxng-cache:
+  ollama:
