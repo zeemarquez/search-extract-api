@@ -1,4 +1,4 @@
-"""A4 — housing vertical: Idealista website/API and filters."""
+"""A4 — /idealista/listings: website, official API and filters."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from search_extract_api.verticals.housing.sources import (
     parse_idealista_listing,
 )
 
-from .conftest import SEARXNG, fixture_text, searxng_item, searxng_payload
+from .conftest import fixture_text
 
 pytestmark = pytest.mark.a4
 
@@ -59,7 +59,7 @@ async def test_housing_search_with_filters(client, net) -> None:
     )
     body = (
         await client.get(
-            "/housing/search",
+            "/idealista/listings",
             params={"operation": "sale", "location": "Madrid", "max_price": 500000, "min_rooms": 3},
         )
     ).json()
@@ -80,7 +80,7 @@ async def test_rent_rooms_path_and_text_filter(client, net) -> None:
     )
     body = (
         await client.get(
-            "/housing/search",
+            "/idealista/listings",
             params={
                 "operation": "rent",
                 "property_type": "rooms",
@@ -97,14 +97,15 @@ async def test_captcha_is_reported_not_empty(client, net) -> None:
     net.get(LISTING_URL).mock(
         return_value=httpx.Response(403, text=DATADOME, headers={"content-type": "text/html"})
     )
-    body = (await client.get("/housing/search", params={"location": "madrid"})).json()
-    assert body["failed_sources"] == ["idealista"]
-    status = body["sources"][0] if body["sources"][0]["name"] == "idealista" else body["sources"][1]
-    assert status["error"]["code"] == "CAPTCHA_REQUIRED"
+    response = await client.get("/idealista/listings", params={"location": "madrid"})
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == "CAPTCHA_REQUIRED"
+    assert error["details"]["source"] == "idealista"
 
 
 async def test_location_is_required(client) -> None:
-    response = await client.get("/housing/search", params={"operation": "sale"})
+    response = await client.get("/idealista/listings", params={"operation": "sale"})
     assert response.status_code == 422
 
 
@@ -150,8 +151,8 @@ async def test_idealista_official_api(make_client, net) -> None:
             "min_rooms": 2,
             "sources": "idealista_api",
         }
-        body = (await c.get("/housing/search", params=params)).json()
-        await c.get("/housing/search", params={**params, "no_cache": "true"})
+        body = (await c.get("/idealista/listings", params=params)).json()
+        await c.get("/idealista/listings", params={**params, "no_cache": "true"})
     assert body["failed_sources"] == []
     result = body["results"][0]
     assert result["price"] == 1200.0 and result["rooms"] == 2 and result["operation"] == "rent"
@@ -163,26 +164,3 @@ async def test_idealista_official_api(make_client, net) -> None:
     assert form["center"] == "40.41,-3.7" and form["distance"] == "1500"
     assert form["bedrooms"] == "2,3,4"
     assert search.calls.last.request.headers["authorization"] == "Bearer tok"
-
-
-async def test_web_housing_source_is_opt_in(client, net) -> None:
-    net.get(f"{SEARXNG}/search").mock(
-        return_value=httpx.Response(
-            200,
-            json=searxng_payload(
-                [
-                    searxng_item(
-                        "https://www.fotocasa.es/es/comprar/vivienda/madrid/123",
-                        "Piso en venta en Madrid - Fotocasa",
-                        "Piso de 3 habitaciones y 80 m² por 320.000 €",
-                    ),
-                ]
-            ),
-        )
-    )
-    body = (
-        await client.get("/housing/search", params={"location": "madrid", "sources": "web_housing"})
-    ).json()
-    result = HousingResult.model_validate(body["results"][0])
-    assert result.price == 320000.0 and result.rooms == 3 and result.area_m2 == 80.0
-    assert result.operation == "sale" and result.location == "madrid"

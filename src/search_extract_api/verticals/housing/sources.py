@@ -11,7 +11,6 @@ from typing import Any
 from lxml import html as lxml_html
 
 from ...adapters.base import SourceAdapter, SourceContext
-from ...adapters.searxng import SearxngAdapter
 from ...config import Settings
 from ...core.numbers import parse_currency, parse_int, parse_number
 from ...core.text import collapse_ws, strip_accents, truncate
@@ -330,71 +329,3 @@ class IdealistaApiAdapter(SourceAdapter):
                 )
             )
         return results
-
-
-HOUSING_SITES = (
-    "fotocasa.es",
-    "pisos.com",
-    "habitaclia.com",
-    "idealista.com/inmueble",
-    "yaencontre.com",
-)
-
-
-class WebHousingAdapter(SearxngAdapter):
-    """Listings from other portals found through general web search (heuristic)."""
-
-    default_enabled = False
-
-    def __init__(self) -> None:
-        super().__init__(
-            name="web_housing",
-            category="general",
-            result_model=HousingResult,
-            title="Web search (real-estate portals)",
-            description="SearXNG restricted to real-estate portals (opt-in, heuristic parsing).",
-        )
-        self._query: HousingQuery | None = None
-
-    def build_query(self, query: BaseQuery) -> str:
-        assert isinstance(query, HousingQuery)
-        words = {"sale": "venta", "rent": "alquiler"}[query.operation]
-        kind = {
-            "homes": "piso",
-            "rooms": "habitación",
-            "offices": "oficina",
-            "premises": "local",
-            "garages": "garaje",
-            "land": "terreno",
-        }[query.property_type]
-        sites = " OR ".join(f"site:{s}" for s in HOUSING_SITES)
-        parts = [kind, words, query.location or "", query.q or ""]
-        return f"{' '.join(p for p in parts if p)} ({sites})"
-
-    def to_result(self, item: dict[str, Any]) -> Result | None:
-        base = super().to_result(item)
-        if base is None:
-            return None
-        text = " ".join(filter(None, [base.title, base.snippet]))
-        price_match = _PRICE.search(text)
-        area_match = _AREA.search(text)
-        rooms_match = _ROOMS.search(text)
-        return HousingResult(
-            **{k: v for k, v in base.model_dump().items() if k in Result.model_fields},
-            price=parse_number(price_match.group(1)) if price_match else None,
-            currency="EUR" if price_match else None,
-            area_m2=parse_number(area_match.group(1)) if area_match else None,
-            rooms=parse_int(rooms_match.group(1)) if rooms_match else None,
-        )
-
-    async def search(self, query: BaseQuery, ctx: SourceContext) -> list[Result]:
-        assert isinstance(query, HousingQuery)
-        results = await super().search(query, ctx)
-        out: list[Result] = []
-        for result in results:
-            if isinstance(result, HousingResult):
-                result.operation = query.operation
-                result.property_type = query.property_type
-                result.location = result.location or query.location
-                out.append(result)
-        return out

@@ -196,4 +196,6 @@ class BaseQuery(BaseModel):
 
 class WebQuery(BaseQuery):
     q: str = Field(min_length=1, max_length=500, description="Query text.")
-    safesearch: Literal[0, 1, 2] = Field(default=1, description="0 off, 1 moderate, 2 strict.")
+    # int + bounds (not Literal[0, 1, 2]): query strings arrive as text and Literal
+    # values are not coerced from "1".
+    safesearch: int = Field(default=1, ge=0, le=2, description="0 off, 1 moderate, 2 strict.")

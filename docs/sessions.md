@@ -70,8 +70,8 @@ Pass `session_id` to:
   full storage state (falls back to plain HTTP with the cookies),
 * `GET /feeds` — private feeds,
 * `POST /ai/verify` and `/extract/structured` with a `url`,
-* vertical searches whose sources need a session, e.g. `GET /jobs/search?q=python&session_id=…`
-  (LinkedIn).
+* provider endpoints that use one: `GET /linkedin/jobs?q=python&session_id=…` (required)
+  and `GET /idealista/listings?location=madrid&session_id=…` (optional, fewer captchas).
 
 Session cookies are only sent to the session's domain (and its subdomains), never to other
 hosts and never to other services such as Crawl4AI.

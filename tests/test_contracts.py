@@ -44,14 +44,19 @@ COMMON_FIELDS = {
 EXTENDED_FIELDS = {
     "web": set(),
     "news": {"outlet", "author", "published_at"},
-    "jobs": {"job_title", "company", "location", "work_mode", "published_at"},
-    "housing": {"operation", "price", "area_m2", "rooms", "location"},
+    **{
+        provider: {"job_title", "company", "location", "work_mode", "published_at"}
+        for provider in ("linkedin", "remotive", "arbeitnow")
+    },
+    "idealista": {"operation", "price", "area_m2", "rooms", "location"},
 }
 QUERIES: dict[str, BaseQuery] = {
     "web": BaseQuery(q="python"),
     "news": NewsQuery(q="vivienda"),
-    "jobs": JobsQuery(q="python"),
-    "housing": HousingQuery(location="madrid", latitude=40.4, longitude=-3.7),
+    "linkedin": JobsQuery(q="python"),
+    "remotive": JobsQuery(q="python"),
+    "arbeitnow": JobsQuery(q="python"),
+    "idealista": HousingQuery(location="madrid", latitude=40.4, longitude=-3.7),
 }
 
 
@@ -82,8 +87,6 @@ def _searxng(net: respx.MockRouter) -> None:
 MOCKS: dict[str, Callable[[respx.MockRouter], None]] = {
     "searxng": _searxng,
     "searxng_news": _searxng,
-    "web_jobs": _searxng,
-    "web_housing": _searxng,
     "tavily": lambda net: net.post("https://api.tavily.com/search").mock(
         return_value=httpx.Response(200, json=TAVILY_BODY)
     ),
@@ -153,8 +156,10 @@ def _registry(settings: Settings) -> VerticalRegistry:
 PHASE = {
     "web": pytest.mark.a1,
     "news": pytest.mark.a2,
-    "jobs": pytest.mark.a4,
-    "housing": pytest.mark.a4,
+    "linkedin": pytest.mark.a4,
+    "remotive": pytest.mark.a4,
+    "arbeitnow": pytest.mark.a4,
+    "idealista": pytest.mark.a4,
 }
 pytestmark = [pytest.mark.a1, pytest.mark.a2, pytest.mark.a3, pytest.mark.a4]
 
@@ -172,7 +177,14 @@ def _all_adapters(settings: Settings) -> list[Any]:
 
 def test_every_vertical_extends_the_common_schema(settings) -> None:
     registry = _registry(settings)
-    assert set(registry.verticals) >= {"web", "news", "jobs", "housing"}
+    assert set(registry.verticals) >= {
+        "web",
+        "news",
+        "linkedin",
+        "idealista",
+        "remotive",
+        "arbeitnow",
+    }
     for name, vertical in registry.verticals.items():
         assert issubclass(vertical.result_model, Result), name
         assert issubclass(vertical.query_model, BaseQuery), name

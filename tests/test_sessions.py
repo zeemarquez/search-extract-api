@@ -176,7 +176,7 @@ async def test_session_only_usable_by_its_owner(keyed, net) -> None:
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "SESSION_NOT_FOUND"
     response = await keyed.get(
-        "/jobs/search",
+        "/linkedin/jobs",
         params={"q": "python", "session_id": sid, "sources": "linkedin"},
         headers=KEY_B,
     )

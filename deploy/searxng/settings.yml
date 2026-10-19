@@ -1,7 +1,12 @@
 # SearXNG configuration used by search-extract-api.
 # SearXNG is only reachable inside the Compose network; the API is its only client.
 # Reference: https://docs.searxng.org/admin/settings/index.html
-use_default_settings: true
+use_default_settings:
+  engines:
+    # Tor-only engines: without a Tor proxy SearXNG logs an error for each at startup.
+    remove:
+      - ahmia
+      - torch
 
 general:
   instance_name: "search-extract-api"

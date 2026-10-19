@@ -1,4 +1,4 @@
-"""Job sources: LinkedIn (with session), Remotive, Arbeitnow and a web-search source."""
+"""Job providers: LinkedIn (with session), Remotive and Arbeitnow."""
 
 from __future__ import annotations
 
@@ -11,11 +11,10 @@ from urllib.parse import urlencode
 from lxml import html as lxml_html
 
 from ...adapters.base import SourceAdapter, SourceContext
-from ...adapters.searxng import SearxngAdapter
 from ...config import Settings
 from ...core.dates import parse_datetime, resolve_window, utcnow
-from ...core.text import collapse_ws, split_title_outlet, strip_accents, strip_html, truncate
-from ...core.urls import is_http_url, site_of
+from ...core.text import collapse_ws, strip_accents, strip_html, truncate
+from ...core.urls import is_http_url
 from ...errors import ApiError, ErrorCode
 from ...schemas.common import BaseQuery, Result
 from ...sessions.profiles import DomainProfile
@@ -362,53 +361,3 @@ class ArbeitnowAdapter(SourceAdapter):
                     )
                 )
         return results
-
-
-JOB_SITES = (
-    "infojobs.net",
-    "indeed.com",
-    "glassdoor.com",
-    "tecnoempleo.com",
-    "welcometothejungle.com",
-    "linkedin.com/jobs/view",
-)
-
-
-class WebJobsAdapter(SearxngAdapter):
-    """Job postings found through general web search on well-known job boards."""
-
-    default_enabled = False
-
-    def __init__(self) -> None:
-        super().__init__(
-            name="web_jobs",
-            category="general",
-            result_model=JobResult,
-            title="Web search (job boards)",
-            description="SearXNG restricted to well-known job boards (opt-in, heuristic parsing).",
-        )
-
-    def build_query(self, query: BaseQuery) -> str:
-        parts = [
-            query.q or "",
-            getattr(query, "company", None) or "",
-            getattr(query, "location", None) or "",
-        ]
-        sites = " OR ".join(f"site:{site}" for site in JOB_SITES)
-        return f"{' '.join(p for p in parts if p)} ({sites})".strip()
-
-    def to_result(self, item: dict[str, Any]) -> Result | None:
-        base = super().to_result(item)
-        if base is None:
-            return None
-        title = base.title or ""
-        head, company = split_title_outlet(title)
-        site = site_of(base.url)
-        if company and site.split(".")[0] in company.lower():
-            head, company = split_title_outlet(head)
-        return JobResult(
-            **{k: v for k, v in base.model_dump().items() if k in Result.model_fields},
-            job_title=head or None,
-            company=company,
-            work_mode=guess_work_mode(title, base.snippet),
-        )

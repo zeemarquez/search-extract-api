@@ -174,6 +174,43 @@ async def test_health_and_root(client) -> None:
     assert health["status"] in {"ok", "degraded"}
     assert health["components"]["cache"]["backend"] == "memory"
     root = (await client.get("/")).json()
-    assert set(root["verticals"]) >= {"web", "news", "jobs", "housing"}
+    assert set(root["verticals"]) >= {
+        "web",
+        "news",
+        "linkedin",
+        "idealista",
+        "remotive",
+        "arbeitnow",
+    }
     verticals = (await client.get("/verticals")).json()
-    assert {v["name"] for v in verticals} >= {"web", "news", "jobs", "housing"}
+    assert {v["name"] for v in verticals} >= {
+        "web",
+        "news",
+        "linkedin",
+        "idealista",
+        "remotive",
+        "arbeitnow",
+    }
+
+
+async def test_safesearch_from_query_string(client, net) -> None:
+    route = net.get(f"{SEARXNG}/search").mock(
+        return_value=httpx.Response(
+            200, json=searxng_payload([searxng_item("https://a.com/", "A")])
+        )
+    )
+    response = await client.get(
+        "/search",
+        params={
+            "q": "euribor",
+            "limit": 20,
+            "page": 1,
+            "sort": "relevance",
+            "no_cache": "false",
+            "safesearch": "1",
+        },
+    )
+    assert response.status_code == 200
+    assert route.calls.last.request.url.params["safesearch"] == "1"
+    bad = await client.get("/search", params={"q": "x", "safesearch": "3"})
+    assert bad.status_code == 422

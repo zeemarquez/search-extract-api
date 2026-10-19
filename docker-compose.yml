@@ -57,6 +57,12 @@ services:
     volumes:
       - ./deploy/searxng:/etc/searxng:rw
       - searxng-cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
     logging: *logging
 
   valkey:
@@ -80,6 +86,15 @@ services:
       # Crawl4AI >= 0.9 only listens on the network when a token is set.
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN:-change-me-crawl4ai-internal-token}
       CRAWL4AI_MAX_TIMEOUT_MS: "120000"
+      CRAWL4AI_NO_CLOUD_NOTICE: "1"
+    healthcheck:
+      # The image's own check also fails on machines with less than 2 GB of RAM in total
+      # (e.g. Docker Desktop's default VM) although the server works: probe the server only.
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:11235/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
     deploy:
       resources:
         limits:

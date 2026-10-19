@@ -41,7 +41,8 @@ Open-source, self-hosted API that turns a **query**, a **feed** or a **URL** int
 normalized results and clean, LLM-ready text — for any domain: general web, news,
 jobs, housing and more.
 
-* **Search** (`/search`) and vertical searches (`/news`, `/jobs`, `/housing`...), merged and
+* **Search** (`/search`), news (`/news`) and provider endpoints (`/linkedin/jobs`,
+  `/idealista/listings`, `/remotive/jobs`, `/arbeitnow/jobs`), merged and
   deduplicated across sources. A failing source never fails the request.
 * **Feeds** (`/feeds`): RSS/Atom/JSON Feed reading and discovery.
 * **Extraction** (`/extract`): clean Markdown + metadata + a stable content fingerprint.

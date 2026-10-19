@@ -31,8 +31,10 @@ SOURCE_ENTRY_POINT = "search_extract_api.sources"
 BUILTIN_VERTICALS = (
     "search_extract_api.verticals.web:WebVertical",
     "search_extract_api.verticals.news:NewsVertical",
-    "search_extract_api.verticals.jobs:JobsVertical",
-    "search_extract_api.verticals.housing:HousingVertical",
+    "search_extract_api.verticals.providers:LinkedInVertical",
+    "search_extract_api.verticals.providers:IdealistaVertical",
+    "search_extract_api.verticals.providers:RemotiveVertical",
+    "search_extract_api.verticals.providers:ArbeitnowVertical",
 )
 
 
@@ -48,6 +50,8 @@ class Vertical:
     result_model: ClassVar[type[Result]] = Result
     #: Merge results with the same headline on the same site (catches redirect URLs).
     title_merge: ClassVar[bool] = True
+    #: Path of the search endpoint under ``prefix`` (e.g. ``/linkedin`` + ``/jobs``).
+    search_path: ClassVar[str] = "/search"
 
     def build_sources(self, settings: Settings) -> list[SourceAdapter]:
         """Built-in source adapters, in priority order."""
@@ -67,10 +71,6 @@ class Vertical:
 
     def extra_routes(self, router: APIRouter) -> None:
         """Hook to add endpoints beyond ``/search`` and ``/sources``."""
-
-    @property
-    def search_path(self) -> str:
-        return "/search"
 
     @property
     def sources_path(self) -> str:

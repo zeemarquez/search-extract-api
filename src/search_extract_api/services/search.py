@@ -34,6 +34,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _SESSION_STATE_ERRORS = {ErrorCode.SESSION_EXPIRED, ErrorCode.CAPTCHA_REQUIRED}
+_BLOCKING_ERRORS = {
+    ErrorCode.SESSION_EXPIRED,
+    ErrorCode.CAPTCHA_REQUIRED,
+    ErrorCode.LOGIN_REQUIRED,
+    ErrorCode.SESSION_REQUIRED,
+    ErrorCode.SESSION_DOMAIN_MISMATCH,
+}
 
 
 @dataclass
@@ -305,6 +312,7 @@ class SearchService:
         merged = self._finalize(merged, query)
 
         statuses = [r.status for r in runs]
+        self._raise_if_all_blocked(statuses)
         failed = [s.name for s in statuses if not s.ok and not s.skipped]
         attempted_ok = any(s.ok for s in statuses)
         response = response_model(
@@ -328,6 +336,23 @@ class SearchService:
             )
             await self.cache.set_model(cache_key, response, ttl)
         return response
+
+    @staticmethod
+    def _raise_if_all_blocked(statuses: list[SourceStatus]) -> None:
+        """If every source that ran was stopped by the site (expired session, captcha,
+        login wall...), answer with that error rather than an empty result list. This is
+        what single-provider endpoints such as ``/linkedin/jobs`` rely on."""
+        attempted = [s for s in statuses if not s.skipped]
+        if not attempted or any(s.ok for s in attempted):
+            return
+        if all(s.error and s.error.code in _BLOCKING_ERRORS for s in attempted):
+            first = attempted[0]
+            assert first.error is not None
+            raise ApiError(
+                ErrorCode(first.error.code),
+                first.error.message,
+                details={"source": first.name, **first.details},
+            )
 
     def _finalize(self, results: list[Result], query: BaseQuery) -> list[Result]:
         since, until = resolve_window(query.time_range, query.since, query.until)

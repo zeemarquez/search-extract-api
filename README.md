@@ -28,13 +28,20 @@ client (e.g. System B) ──HTTP──▶ search-extract-api ──▶ SearXNG 
 | AI | `POST /ai/summarize`, `/ai/dedup`, `/ai/classify`, `/ai/verify` | any OpenAI-compatible LLM; embeddings for dedup |
 | Sessions | `/sessions` (cookie import, interactive login, health check, delete) | encrypted store + headless Chromium |
 | News | `GET/POST /news/search`, `GET /news/top` | SearXNG news, GDELT DOC 2.0, Google News RSS |
-| Jobs | `GET/POST /jobs/search` | LinkedIn (your session), Remotive, Arbeitnow, job boards via web search |
-| Housing | `GET/POST /housing/search` | Idealista (website, or official API with keys), portals via web search |
+| LinkedIn | `GET/POST /linkedin/jobs` (`session_id` required) | LinkedIn jobs with your own session |
+| Idealista | `GET/POST /idealista/listings` | Idealista listings: official API with keys, website otherwise |
+| Remotive | `GET/POST /remotive/jobs` | Remote jobs from remotive.com |
+| Arbeitnow | `GET/POST /arbeitnow/jobs` | Jobs in Europe from arbeitnow.com |
 | Service | `GET /health`, `GET /verticals`, `GET /<vertical>/sources`, OpenAPI at `/docs` | |
 
 Design guarantees:
 
-* **One result schema everywhere**, extended per vertical (`NewsResult`, `JobResult`, `HousingResult`).
+* **One result schema everywhere**, extended per vertical or provider (`NewsResult`,
+  `JobResult` for the job providers, `HousingResult` for Idealista).
+* **One endpoint per provider** for site-specific sources (`/linkedin`, `/idealista`,
+  `/remotive`, `/arbeitnow`): each keeps its own filters and fields. When the provider
+  blocks access (expired session, captcha, login wall) the endpoint answers with that
+  error (HTTP 409) instead of an empty list.
 * **Fault tolerant**: a failing source never fails the request; the response lists which sources failed and why.
 * **Blocked pages are errors, never empty content**: `LOGIN_REQUIRED`, `SESSION_EXPIRED`, `CAPTCHA_REQUIRED`.
 * **Stable content fingerprint**: the same article hashes the same even when ads, navigation or "updated 5 minutes ago" change — so a client can build reliable change alerts.
@@ -49,7 +56,11 @@ docker compose up -d
 
 This starts the API on `http://127.0.0.1:8000`, SearXNG (JSON output enabled), Valkey
 (cache), Crawl4AI (headless browser) and the encrypted session store (a Docker volume).
-Interactive docs: <http://127.0.0.1:8000/docs>. Crawl4AI needs about 2 GB of RAM.
+Interactive docs: <http://127.0.0.1:8000/docs>. Give Docker at least 4 GB of RAM: Crawl4AI
+alone needs about 2 GB, and Docker Desktop's default 2 GB VM ends up swapping (raise it under
+Settings → Resources, or in `.wslconfig` with the WSL 2 backend). `docker compose ps` should
+show all four services as `healthy`; `/health?deep=true` also checks that the API reaches
+SearXNG, Crawl4AI and the LLM (it reports `degraded` while no LLM is reachable).
 
 ```bash
 curl "http://127.0.0.1:8000/search?q=open+source+llm&lang=en&time_range=week"
@@ -124,8 +135,9 @@ Rate limits apply per key (`RATE_LIMIT_PER_MINUTE`, headers `X-RateLimit-*`).
   always resolves Google News links before fetching.
 * `providers` lists every source that found the item. Results found by several sources are
   merged into one and ranked higher (reciprocal rank fusion).
-* Verticals add fields: news `outlet`, `author`; jobs `job_title`, `company`, `location`,
-  `work_mode`, `employment_type`, `salary`; housing `operation`, `price`, `currency`,
+* Verticals and providers add fields: news `outlet`, `author`; job providers `job_title`,
+  `company`, `location`, `work_mode`, `employment_type`, `salary`; Idealista `operation`,
+  `price`, `currency`,
   `area_m2`, `rooms`, `bathrooms`, `location`. `GET /verticals` returns every schema.
 
 ### Search envelope and fault tolerance
@@ -190,7 +202,7 @@ use **their own session** without ever giving it their password.
    included); then presses *Save session*. Only the resulting session state is stored.
 
 Then pass `session_id` to `/extract`, `/feeds`, `/ai/verify` or a vertical search
-(`/jobs/search?q=python&session_id=ses_…`).
+(`/linkedin/jobs?q=python&session_id=ses_…`).
 
 * **Ownership**: a session belongs to its domain and to the API key that created it. Any
   other key gets `404 SESSION_NOT_FOUND`. (System B maps its users to their sessions.)
@@ -263,7 +275,7 @@ The project was built in four phases, each functional and tested before the next
 | A1 | Core: web search, feeds, extraction with fingerprint, common schema, Docker Compose | `-m a1` |
 | A2 | News vertical, AI endpoints (summarize, dedup, classify, verify), commercial fallbacks | `-m a2` |
 | A3 | Authenticated sessions (cookie import, interactive login), structured extraction | `-m a3` |
-| A4 | Jobs and housing verticals | `-m a4` |
+| A4 | Job and real-estate providers (LinkedIn, Remotive, Arbeitnow, Idealista) | `-m a4` |
 
 The suite covers the schema contract of every adapter and vertical, URL merging and
 deduplication across sources, behavior when a source fails, fingerprint stability when ads
