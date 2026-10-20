@@ -4,7 +4,11 @@
 #
 # Services: the API, SearXNG (JSON output enabled), Valkey (cache), Crawl4AI (headless
 # browser rendering) and the encrypted session store (the `sessions` volume).
-# Optional local LLM: COMPOSE_PROFILES=ollama plus LLM_BASE_URL=http://ollama:11434/v1.
+# SearXNG's settings (deploy/searxng/) are baked into a local image: after changing them run
+# `docker compose build searxng`. Only named volumes are used (no host bind mounts), so the
+# file also deploys as-is on Compose importers such as Openship.
+# Optional local LLM: add the override file and set LLM_BASE_URL=http://ollama:11434/v1:
+#   docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
 # Every setting can be overridden from a `.env` file (see .env.example).
 
 name: search-extract-api
@@ -49,13 +53,13 @@ services:
     logging: *logging
 
   searxng:
-    image: docker.io/searxng/searxng:2026.10.17-1c10abe2d
+    build: ./deploy/searxng
+    image: search-extract-searxng:local
     restart: unless-stopped
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-change-me-searxng-secret}
       SEARXNG_BASE_URL: http://searxng:8080/
     volumes:
-      - ./deploy/searxng:/etc/searxng:rw
       - searxng-cache:/var/cache/searxng
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
@@ -101,29 +105,6 @@ services:
           memory: ${CRAWL4AI_MEMORY:-4g}
     logging: *logging
 
-  # --- Optional local LLM (COMPOSE_PROFILES=ollama) -----------------------------------
-  ollama:
-    image: docker.io/ollama/ollama:0.40.6
-    profiles: ["ollama"]
-    restart: unless-stopped
-    volumes:
-      - ollama:/root/.ollama
-    logging: *logging
-
-  ollama-pull:
-    image: docker.io/ollama/ollama:0.40.6
-    profiles: ["ollama"]
-    depends_on:
-      - ollama
-    environment:
-      OLLAMA_HOST: http://ollama:11434
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - "sleep 3 && ollama pull ${LLM_CHAT_MODEL:-qwen2.5:7b-instruct} && ollama pull ${EMBEDDINGS_MODEL:-bge-m3}"
-    restart: "no"
-    logging: *logging
-
 volumes:
   sessions:
   searxng-cache:
-  ollama:

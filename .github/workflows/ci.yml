@@ -26,4 +26,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: docker compose config --quiet
+      - run: docker compose -f docker-compose.yml -f docker-compose.ollama.yml config --quiet
+      - run: docker compose build searxng
       - run: docker build --build-arg INSTALL_BROWSER=false -t search-extract-api:ci .

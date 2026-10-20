@@ -68,6 +68,10 @@ curl "http://127.0.0.1:8000/news/search?q=vivienda&lang=es&region=ES&time_range=
 curl -X POST http://127.0.0.1:8000/extract -H "Content-Type: application/json" -d '{"url": "https://example.com/article"}'
 ```
 
+SearXNG's settings live in `deploy/searxng/` and are baked into a local image (no bind
+mount), so after changing them run `docker compose build searxng && docker compose up -d`
+(or redeploy).
+
 To configure anything, copy `.env.example` to `.env` (all values optional). Before exposing
 the API beyond localhost set `API_KEYS`, `API_BIND=0.0.0.0` and change `SEARXNG_SECRET` and
 `CRAWL4AI_API_TOKEN`.
@@ -80,12 +84,11 @@ which ones, and the commercial fallbacks (if configured) take over.
 
 The AI endpoints and structured extraction use any OpenAI-compatible endpoint. By default
 the stack points at Ollama on the Docker host (`http://host.docker.internal:11434/v1`). To run
-Ollama inside the stack instead:
+Ollama inside the stack instead, set `LLM_BASE_URL=http://ollama:11434/v1` in `.env` and add
+the override file (it also pulls the chat and embeddings models on first start):
 
 ```bash
-# .env
-COMPOSE_PROFILES=ollama
-LLM_BASE_URL=http://ollama:11434/v1
+docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d
 ```
 
 The chat model (`LLM_CHAT_MODEL`, default `qwen2.5:7b-instruct`) and the embeddings model
