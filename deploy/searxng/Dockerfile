@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # SearXNG with the search-extract-api configuration baked in (no bind mount needed).
 # Rebuild after editing settings.yml: docker compose build searxng
 FROM docker.io/searxng/searxng:2026.10.17-1c10abe2d
